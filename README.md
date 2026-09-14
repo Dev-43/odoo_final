@@ -4,6 +4,40 @@ PeoplePay360 is a full-featured enterprise HR management and automated payroll p
 
 ---
 
+## 📸 Application Screenshots & UI Showcase
+
+Explore the PeoplePay360 interface in action:
+
+### 1. Executive Payroll & Analytics Dashboard
+Real-time workforce KPIs, salary expenditure breakdown by department, and monthly net pay trend visualization.
+
+<p align="center">
+  <img src="ss/Screenshot%202026-09-14%20163941.png" alt="Executive Payroll & Analytics Dashboard" width="100%" />
+</p>
+
+### 2. Employee Directory & Department Kanban Board
+Interactive employee directory with Kanban card sorting grouped by department, live search, and real-time status indicators.
+
+<p align="center">
+  <img src="ss/Screenshot%202026-09-14%20163756.png" alt="Employees Directory Kanban Board" width="100%" />
+</p>
+
+### 3. Itemized Payslip & Dynamic Salary Computation
+Transparent, rule-calculated salary computation displaying Basic Salary, Allowances (HRA, TA), Gross Salary, Deductions (Tax, PF), Net Salary, and instant PDF download.
+
+<p align="center">
+  <img src="ss/Screenshot%202026-09-14%20163855.png" alt="Payslip & Salary Computation Breakdown" width="100%" />
+</p>
+
+### 4. System Logs & Enterprise Audit Trail
+Granular audit logging tracking system operations, user logins, timestamps, and expandable JSON event payloads.
+
+<p align="center">
+  <img src="ss/Screenshot%202026-09-14%20163826.png" alt="System Logs & Enterprise Audit Trail" width="100%" />
+</p>
+
+---
+
 ## 🏗 Codebase Structure & Architecture
 
 ```text
@@ -54,31 +88,33 @@ odoo/
 │       ├── person-a/                 # Core HR, Auth, Contract, and Time-off Integration Tests
 │       └── person-b/                 # Payroll Engine, Payrun, and Queue Worker Integration Tests
 │
-└── payroll-dashboard/                # React 18 + Vite Frontend Application
-    ├── src/
-    │   ├── App.jsx                   # React Router setup & protected route boundaries
-    │   ├── index.css                 # Global Tailwind CSS tokens & modern warm neutral theme
-    │   ├── components/               # Reusable Design System Components (Topbar, UI Card, Button, Input)
-    │   ├── lib/
-    │   │   ├── api.js                # Frontend HTTP client & endpoint wrappers
-    │   │   └── user.js               # Session state management (getSession, logout)
-    │   └── pages/                    # Application Views
-    │       ├── Auth.jsx              # Sign-In & Registration Page
-    │       ├── Profile.jsx           # Employee Profile & Personal Info Editor
-    │       ├── Dashboard.jsx         # Executive Reports & HR Kanban Board
-    │       ├── EmployeesList.jsx     # Employee Directory & Filtering
-    │       ├── EmployeeView.jsx      # Employee Detailed Profile & History
-    │       ├── EmployeeForm.jsx      # Employee Onboarding & Edit Form
-    │       ├── ContractsList.jsx     # Contract Management List
-    │       ├── ContractForm.jsx      # Contract Creation & Revision Form
-    │       ├── TimeOffList.jsx       # Leave Requests & Allocations
-    │       ├── PayrunsList.jsx       # Payruns Overview
-    │       ├── PayrunWizard.jsx      # 3-Step Payrun Creation Wizard
-    │       ├── PayrunDetail.jsx      # Payrun Summary & Itemized Payslips
-    │       ├── SalaryStructuresList.jsx # Salary Structures & Rules Management
-    │       ├── UserManagement.jsx    # User Account Approval & RBAC Promotion
-    │       ├── AuditLog.jsx          # System Audit Trail Viewer
-    │       └── ErrorPages.jsx        # Top-level Dedicated Error Components (401, 403, 404, 500)
+├── payroll-dashboard/                # React 18 + Vite Frontend Application
+│   ├── src/
+│   │   ├── App.jsx                   # React Router setup & protected route boundaries
+│   │   ├── index.css                 # Global Tailwind CSS tokens & modern warm neutral theme
+│   │   ├── components/               # Reusable Design System Components (Topbar, UI Card, Button, Input)
+│   │   ├── lib/
+│   │   │   ├── api.js                # Frontend HTTP client & endpoint wrappers
+│   │   │   └── user.js               # Session state management (getSession, logout)
+│   │   └── pages/                    # Application Views
+│   │       ├── Auth.jsx              # Sign-In & Registration Page
+│   │       ├── Profile.jsx           # Employee Profile & Personal Info Editor
+│   │       ├── Dashboard.jsx         # Executive Reports & HR Kanban Board
+│   │       ├── EmployeesList.jsx     # Employee Directory & Filtering
+│   │       ├── EmployeeView.jsx      # Employee Detailed Profile & History
+│   │       ├── EmployeeForm.jsx      # Employee Onboarding & Edit Form
+│   │       ├── ContractsList.jsx     # Contract Management List
+│   │       ├── ContractForm.jsx      # Contract Creation & Revision Form
+│   │       ├── TimeOffList.jsx       # Leave Requests & Allocations
+│   │       ├── PayrunsList.jsx       # Payruns Overview
+│   │       ├── PayrunWizard.jsx      # 3-Step Payrun Creation Wizard
+│   │       ├── PayrunDetail.jsx      # Payrun Summary & Itemized Payslips
+│   │       ├── SalaryStructuresList.jsx # Salary Structures & Rules Management
+│   │       ├── UserManagement.jsx    # User Account Approval & RBAC Promotion
+│   │       ├── AuditLog.jsx          # System Audit Trail Viewer
+│   │       └── ErrorPages.jsx        # Top-level Dedicated Error Components (401, 403, 404, 500)
+│
+└── ss/                               # Production Application UI Screenshots
 ```
 
 ---

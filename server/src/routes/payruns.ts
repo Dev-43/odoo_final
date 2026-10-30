@@ -28,6 +28,25 @@ const attachEmployeesSchema = z.object({
   employeeIds: z.array(z.string()).min(1),
 });
 
+// Runs `fn` over `items` in sequential batches of `batchSize`, concurrently
+// within each batch. Each payslip's compute step opens its own interactive
+// $transaction; firing all of them at once via a single Promise.all against a
+// 300+ employee payrun exhausts Prisma's connection pool and starts throwing
+// "Unable to start a transaction in the given time." Batching bounds how many
+// transactions are ever open at once, regardless of payrun size.
+async function mapInBatches<T, R>(
+  items: T[],
+  batchSize: number,
+  fn: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = [];
+  for (let i = 0; i < items.length; i += batchSize) {
+    const batch = items.slice(i, i + batchSize);
+    results.push(...(await Promise.all(batch.map(fn))));
+  }
+  return results;
+}
+
 // ---------------------------------------------------------------------------
 // GET /api/payruns — list with payslip counts
 // Roles: HR_PAYROLL_USER, HR_PAYROLL_MANAGER, ADMIN
@@ -228,35 +247,34 @@ router.post(
 
     const toCreate = employeeIds.filter((empId) => !existingIds.has(empId));
 
-    // Resolve contracts and create payslip stubs in a transaction
-    const created: string[] = [];
+    // Resolve contracts in parallel first (plain reads — no transaction needed),
+    // then insert every payslip stub in one batched write. Looping one employee
+    // at a time inside a single interactive $transaction blew past Prisma's
+    // default 5s transaction timeout once the seed data grew to 300+ employees.
+    const contracts = await Promise.all(
+      toCreate.map((employeeId) =>
+        getActiveContractForPeriod(employeeId, payrun.periodStart, payrun.periodEnd).then(
+          (contract) => ({ employeeId, contract })
+        )
+      )
+    );
 
-    await prisma.$transaction(async (tx) => {
-      for (const employeeId of toCreate) {
-        const contract = await getActiveContractForPeriod(
-          employeeId,
-          payrun.periodStart,
-          payrun.periodEnd
-        );
+    const rows = contracts
+      // Skip employees without an active contract — will be reported as skipped
+      .filter((r): r is { employeeId: string; contract: NonNullable<typeof r.contract> } => !!r.contract)
+      .map((r) => ({
+        payrunId: id,
+        employeeId: r.employeeId,
+        contractId: r.contract.id,
+        workedDays: 0,
+        status: 'draft',
+        warnings: [] as string[],
+      }));
 
-        if (!contract) {
-          // Skip employees without an active contract — will be reported as skipped
-          continue;
-        }
-
-        await tx.payslip.create({
-          data: {
-            payrunId: id,
-            employeeId,
-            contractId: contract.id,
-            workedDays: 0,
-            status: 'draft',
-            warnings: [],
-          },
-        });
-        created.push(employeeId);
-      }
-    });
+    if (rows.length > 0) {
+      await prisma.payslip.createMany({ data: rows });
+    }
+    const created = rows.map((r) => r.employeeId);
 
     await writeAuditLog({
       userId: session.userId,
@@ -366,6 +384,95 @@ router.post(
             WORKED_DAYS: workedDays,
           };
 
+          // 3. Run the rule engine (uses contract's structure rules, not payrun's — period-correct)
+          const {
+            lines,
+            scope,
+            warnings: ruleWarnings,
+          } = computeSalaryRules(
+            contract.salaryStructure.rules.map((r: any) => ({
+              ...r,
+              computationMethod: r.computationMethod as 'fixed' | 'percentage' | 'formula',
+            })),
+            baseContext
+          );
+          warnings.push(...ruleWarnings);
+
+          // 4. Warn if bank details missing
+          if (!payslip.employee.bankAccountNumber) {
+            warnings.push('missing bank details — cannot process payment');
+          }
+
+          // 5. Find net salary
+          const netLine = lines.find((l) => l.category === 'Net');
+          const netSalary = netLine?.amount ?? scope['NET'] ?? 0;
+
+          // 6. Delete old lines and create new ones (enables recompute on draft payslips)
+          //    This is the key pattern for the live-demo "edit rule → recompute" flow
+          await prisma.$transaction(async (tx) => {
+            await tx.payslipLine.deleteMany({ where: { payslipId: payslip.id } });
+            await tx.payslipLine.createMany({
+              data: lines.map((l) => ({ ...l, payslipId: payslip.id })),
+            });
+            await tx.payslip.update({
+              where: { id: payslip.id },
+              data: {
+                contractId: contract.id,
+                workedDays,
+                netSalary,
+                warnings,
+                status: 'computed',
+              },
+            });
+          });
+
+          return { skipped: false, employeeId: payslip.employeeId, netSalary };
+        })
+      );
+      updates.push(...chunkResults);
+    }
+
+    for (let i = 0; i < payslipList.length; i += chunkSize) {
+      const chunk = payslipList.slice(i, i + chunkSize);
+      const chunkResults = await Promise.all(
+        chunk.map(async (payslip: any) => {
+          const warnings: string[] = [];
+
+          const duplicatePayrunName = duplicateByEmployee.get(payslip.employeeId);
+          if (duplicatePayrunName) {
+            warnings.push(
+              `duplicate payslip — employee already has a validated/paid payslip for an overlapping period in "${duplicatePayrunName}"`
+            );
+          }
+
+          // 1. Resolve the period-correct contract
+          const contract = await getActiveContractForPeriod(
+            payslip.employeeId,
+            payrun.periodStart,
+            payrun.periodEnd
+          );
+
+          if (!contract) {
+            warnings.push('no active contract for period — payslip skipped');
+            await prisma.payslip.update({
+              where: { id: payslip.id },
+              data: { warnings, status: 'draft' },
+            });
+            return { skipped: true, employeeId: payslip.employeeId };
+          }
+
+          // 2. Build base context
+          const workedDays = await getWorkedDaysForPeriod(
+            payslip.employeeId,
+            payrun.periodStart,
+            payrun.periodEnd
+          );
+
+          const baseContext: Record<string, number> = {
+            CONTRACT_WAGE: contract.wage,
+            WORKED_DAYS: workedDays,
+          };
+
           // 3. Run the rule engine
           const {
             lines,
@@ -407,11 +514,71 @@ router.post(
             });
           });
 
+<<<<<<< Updated upstream
           return { skipped: false, employeeId: payslip.employeeId, netSalary };
         })
       );
       updates.push(...chunkResults);
     }
+=======
+        // 2. Build base context
+        const workedDays = await getWorkedDaysForPeriod(
+          payslip.employeeId,
+          payrun.periodStart,
+          payrun.periodEnd
+        );
+
+        const baseContext: Record<string, number> = {
+          CONTRACT_WAGE: contract.wage,
+          WORKED_DAYS: workedDays,
+        };
+
+        // 3. Run the rule engine (uses contract's structure rules, not payrun's — period-correct)
+        const {
+          lines,
+          scope,
+          warnings: ruleWarnings,
+        } = computeSalaryRules(
+          contract.salaryStructure.rules.map((r: any) => ({
+            ...r,
+            computationMethod: r.computationMethod as 'fixed' | 'percentage' | 'formula',
+          })),
+          baseContext
+        );
+        warnings.push(...ruleWarnings);
+
+        // 4. Warn if bank details missing
+        if (!payslip.employee.bankAccountNumber) {
+          warnings.push('missing bank details — cannot process payment');
+        }
+
+        // 5. Find net salary
+        const netLine = lines.find((l) => l.category === 'Net');
+        const netSalary = netLine?.amount ?? scope['NET'] ?? 0;
+
+        // 6. Delete old lines and create new ones (enables recompute on draft payslips)
+        //    This is the key pattern for the live-demo "edit rule → recompute" flow
+        await prisma.$transaction(async (tx) => {
+          await tx.payslipLine.deleteMany({ where: { payslipId: payslip.id } });
+          await tx.payslipLine.createMany({
+            data: lines.map((l) => ({ ...l, payslipId: payslip.id })),
+          });
+          await tx.payslip.update({
+            where: { id: payslip.id },
+            data: {
+              contractId: contract.id,
+              workedDays,
+              netSalary,
+              warnings,
+              status: 'computed',
+            },
+          });
+        });
+
+        return { skipped: false, employeeId: payslip.employeeId, netSalary };
+      }
+    );
+>>>>>>> Stashed changes
 
     await prisma.payrun.update({
       where: { id },

@@ -38,6 +38,67 @@ Granular audit logging tracking system operations, user logins, timestamps, and 
 
 ---
 
+## 🏛️ System Component Architecture
+
+The following UML Component Architecture diagram illustrates the decoupled five-tier system design of PeoplePay360—separating client presentation, stateless API routing, transactional business domain logic, and asynchronous background worker queues:
+
+```mermaid
+graph TB
+    subgraph ClientLayer["🖥️ Frontend Client Tier (React 18 + Vite)"]
+        UI["UI Views & Components<br/>(Kanban / Directory / Payrun Wizard / Reports)"]
+        Router["React Router v6<br/>(Role-Based Protected Routes)"]
+        Client["API Client & Session Manager<br/>(JWT Bearer Storage & Error Interceptor)"]
+        UI --> Router
+        Router --> Client
+    end
+
+    subgraph APILayer["🛡️ API Gateway & Security Tier (Express + TypeScript)"]
+        CORS["CORS & Request Sanitization"]
+        AuthMid["Auth & RBAC Middleware<br/>(requireAuth · requireRole)"]
+        ZodVal["Zod Schema Validator<br/>(Strict DTO Validation)"]
+        Routes["REST API Controllers<br/>(Employees · Contracts · Payruns · TimeOff)"]
+        ErrMid["Global Error Handler<br/>(ApiError · 404/500 Formatting)"]
+        
+        CORS --> AuthMid --> ZodVal --> Routes --> ErrMid
+    end
+
+    subgraph CoreEngine["⚙️ Domain Services & Business Logic Tier"]
+        ContractUtil["Contract Resolver<br/>(Active Contract Overlap Guard)"]
+        AttendUtil["Attendance Engine<br/>(Worked Days + Paid Leave Integration)"]
+        RuleEngine["Salary Rule Engine<br/>(Sequential Scope Accumulator via mathjs AST)"]
+        TimeOffEngine["Time-Off Engine<br/>(Self-Approval Guard & Atomic Deductions)"]
+        AuditUtil["Audit Trail Logger<br/>(writeAuditLog · writeErrorLog)"]
+    end
+
+    subgraph AsyncWorker["⚡ Asynchronous Background Processing Tier"]
+        Queue["BullMQ Task Queue<br/>('payslip-send')"]
+        Worker["sendPayslips Worker<br/>(Batch Fault Isolation)"]
+        PDFKit["PDFKit Vector Generator<br/>(Odoo-Styled Itemized Payslips)"]
+        Mailer["Nodemailer SMTP Client"]
+        
+        Queue --> Worker
+        Worker --> PDFKit
+        Worker --> Mailer
+    end
+
+    subgraph Persistence["💾 Persistence & External Infrastructure"]
+        Postgres[("PostgreSQL Database<br/>(Prisma ORM · ACID Transactions)")]
+        RedisDB[("Redis In-Memory Broker<br/>(Queue State & BullMQ Jobs)")]
+        SMTP["Mailpit / SMTP Server<br/>(SMTP: 1025 · Web UI: 8025)"]
+    end
+
+    Client -->|HTTPS / JSON + Bearer JWT| CORS
+    Routes --> CoreEngine
+    CoreEngine -->|ACID Transactions & Queries| Postgres
+    Routes -->|Enqueue Bulk Job| Queue
+    Queue -.->|Store Jobs| RedisDB
+    Worker -.->|Pop Jobs| RedisDB
+    Worker -->|Fetch Batch Data| Postgres
+    Mailer -->|Deliver Payslip PDF via SMTP| SMTP
+    Worker -->|Log Event| AuditUtil
+    AuditUtil -->|Write Event| Postgres
+```
+
 ## 🏗 Codebase Structure & Architecture
 
 ```text
@@ -235,7 +296,7 @@ A seed database with **310 realistic employees** across 8 departments is include
 | **Admin** | `admin@peoplepay360.com` | `Admin@123` | Full system access, User Management, Audit & Error Logs |
 | **HR Payroll Manager** | `payroll.manager@peoplepay360.com` | `Manager@123` | Payrun Wizard, Salary Structures, Contract Approval |
 | **HR Payroll User** | `payroll.user@peoplepay360.com` | `User@123` | Contract & Payrun entry, Payslip generation |
-| **HR Manager** | `hr.manager@peoplepay360.com` | `Hr@123` | Core HR, Employee Directory, Working Schedules, Time-off |
+| **HR Manager** | `hr.manager1@peoplepay360.com` | `Hr@123` | Core HR, Employee Directory, Working Schedules, Time-off |
 | **Employee** | `emp1@peoplepay360.com` | `Emp@123` | Self-service (My Profile, Attendance, Time-off, My Payslips) |
 
 > 📄 Complete test credentials CSV exported to: [`server/prisma/user_credentials.csv`](file:///d:/odoo/odoo/server/prisma/user_credentials.csv).

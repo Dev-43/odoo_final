@@ -30,7 +30,7 @@ export const SEED_USERS = [
   },
   {
     role: 'HR_MANAGER',
-    email: 'hr.manager@peoplepay360.com',
+    email: 'hr.manager1@peoplepay360.com',
     password: 'Hr@123',
     name: 'Lisa Wang',
     description: 'Core HR, Contracts & Leave Approvals',
